@@ -45,6 +45,59 @@ ratings_df.drop(['timestamp'], axis=1,inplace=True)
 # We make use of an SVD model trained on a subset of the MovieLens 10k dataset.
 model=pickle.load(open('resources/models/SVD.pkl', 'rb'))
 
+# Function to retrieve movie Id for each movie title selected:
+def get_movie_id_from_title(title):
+    return movies_df.loc[movies_df["title"] == title, "movieId"].iloc[0]
+
+# Function to extract user id's associated with high ratings of favourite movie
+def get_top_rated_users_for_movie(movie_id):
+    """Map a given favourite movie to users within the
+       MovieLens dataset with the same preference.
+
+    Parameters
+    ----------
+    movie_id : int
+        A MovieLens Movie ID.
+
+    Returns
+    -------
+    list
+        User IDs of users with similar high ratings for the given movie.
+
+    """
+    user_id_df = ratings_df.loc[ratings_df["movieId"] == movie_id].sort_values(
+        "rating", axis=0, ascending=False
+    )
+
+    # Return the 5 users who gave the highest ratings to selected movie
+    return list(user_id_df["userId"])[:5]
+
+# Function to calculate predicted rating of users for each movie
+def get_top_predictions_for_users(user_list):
+
+    list_movieId = list(movies_df.movieId.unique())
+
+    predicted_ratings_list = []
+
+    for userID in user_list:
+        for movieID in list_movieId:
+            #prediction_value = SVD_model.predict(userID, movieID)
+            prediction_value = model.predict(userID, movieID)
+            predicted_ratings_list.append(
+                {
+                    "userId": userID,
+                    "movieId": movieID,
+                    "predicted_rating": prediction_value.est,
+                }
+            )
+
+    prediction_data = pd.DataFrame(predicted_ratings_list)
+    prediction_data = prediction_data.sort_values("predicted_rating", ascending=False)
+
+    return prediction_data[["movieId", "predicted_rating"]].iloc[:50] #Can now proceed to collab_model
+
+
+
 def prediction_item(item_id):
     """Map a given favourite movie to users within the
        MovieLens dataset with the same preference.
@@ -117,7 +170,8 @@ def collab_model(movie_list,top_n=10):
         Titles of the top-n movie recommendations to the user.
 
     """
-
+    #The below red is original EDSA 
+    """
     indices = pd.Series(movies_df['title'])
     movie_ids = pred_movies(movie_list)
     df_init_users = ratings_df[ratings_df['userId']==movie_ids[0]]
@@ -146,3 +200,25 @@ def collab_model(movie_list,top_n=10):
     for i in top_indexes[:top_n]:
         recommended_movies.append(list(movies_df['title'])[i])
     return recommended_movies
+    """
+    # Finding movie ID's for input
+    movie_ids = []
+    user_ids = []
+
+    for movie in movie_list:
+        movie_id = get_movie_id_from_title(movie)
+        user_id = get_top_rated_users_for_movie(movie_id)
+
+        if user_id:
+            user_ids = user_ids + user_id
+
+    if len(user_ids) < 1:
+        raise ValueError("Unable to find matching users")
+
+    filtered_predictions = get_top_predictions_for_users(user_ids)
+
+    prediction_output = pd.merge(
+        filtered_predictions, movies_df, on="movieId", how="left"
+    )
+
+    return list(prediction_output["title"].iloc[:top_n])
